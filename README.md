@@ -18,5 +18,3 @@ Agri Bot Multilingual is a Streamlit-based chatbot designed specifically for far
 
 - **User-Friendly Interface:**  
   Built with Streamlit for a clean and interactive web interface.
-
-bot-multilingual
