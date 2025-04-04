@@ -1,5 +1,4 @@
 streamlit
-langchain
 deep-translator
 SpeechRecognition
 gTTS
