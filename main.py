@@ -12,6 +12,9 @@ import json
 import re
 from PIL import Image
 
+# Import LangChain memory for conversation history preservation
+from langchain.memory import ConversationBufferMemory
+
 # Load .env variables
 load_dotenv(find_dotenv())
 
@@ -84,9 +87,15 @@ GOOGLE_SPEECH_LANG_MAP = {
     "ur": "ur-IN"
 }
 
-# Initialize chat history in session_state
+# Initialize chat history in session_state (for sidebar display)
 if "chat_history" not in st.session_state:
     st.session_state.chat_history = []
+
+# Initialize LangChain conversation memory with a window of the last 7 turns
+if "conversation_memory" not in st.session_state:
+    st.session_state.conversation_memory = ConversationBufferMemory(
+        memory_key="history", return_messages=False, k=7
+    )
 
 # Initialize uploaded image in session_state (do not auto-analyze)
 if "uploaded_image" not in st.session_state:
@@ -139,7 +148,7 @@ FARMING_KEYWORDS = [
     "livestock", "organic", "horticulture", "greenhouse", "germination", "plant", "plants", "mulching", "herb", "herbs", "shurb", "shurbs",
     "sowing", "planting", "harvesting", "plowing", "disease", "treatment", "fertilizers", "agro", "fruit", "vegetable", "season", "drought", "rain", "weather", "flora"
 ]
-# hi pratham
+
 def is_agriculture_query(query):
     """
     Determines whether a query is agriculture-related using a hybrid approach.
@@ -163,22 +172,23 @@ def is_agriculture_query(query):
         return True
     return False
 
-def get_gemini_response(query, chat_history):
+def get_gemini_response(query):
     # Use LLM-based filtering to check if the query is agriculture-related
     if not is_agriculture_query(query):
         return "This bot is designed only for farmers and agriculture-related queries."
     
-    # Build conversation context prompt with explicit instruction for a detailed answer.
+    # Build conversation context prompt using LangChain memory (if available)
     conversation_context = ""
-    for user_query, bot_response in chat_history:
-        conversation_context += f"User: {user_query}\nBot: {bot_response}\n"
+    if "conversation_memory" in st.session_state and st.session_state.conversation_memory.buffer:
+        conversation_context = st.session_state.conversation_memory.buffer + "\n"
     conversation_context += (
         f"User: {query}\n"
         "Bot (please provide a detailed and comprehensive explanation): "
     )
     
-    model = genai.GenerativeModel("gemini-1.5-flash")
-    response = model.generate_content(conversation_context)
+    with st.spinner("Generating response..."):
+        model = genai.GenerativeModel("gemini-1.5-flash")
+        response = model.generate_content(conversation_context)
     return response.text if response else "Sorry, I couldn't generate a response."
 
 def clean_json_response(text):
@@ -206,8 +216,9 @@ def analyze_plant_with_gemini(uploaded_image):
             "Return only valid JSON without any extra commentary."
         )
 
-        # Send image to Gemini API for analysis
-        response = model.generate_content([image, prompt])
+        with st.spinner("Analyzing image..."):
+            # Send image to Gemini API for analysis
+            response = model.generate_content([image, prompt])
         # Clean the response text by removing markdown formatting if present
         cleaned_text = clean_json_response(response.text)
         # Parse the cleaned text as JSON
@@ -230,10 +241,12 @@ st.title("🌿 Agri Bot (Multilingual) 🌿")
 st.subheader("Ask your farming-related questions via voice or text.")
 
 # Sidebar for Language Selection
-st.sidebar.title("Language Selection")
+st.sidebar.title("Settings")
 selected_lang = st.sidebar.selectbox("Choose your preferred language:",
                                      options=INDIAN_LANGUAGES,
                                      format_func=lambda x: LANGUAGE_NAMES[x])
+# Audio toggle option
+enable_audio = st.sidebar.checkbox("Enable Text-to-Speech", value=True)
 
 # User Input Mode for Chat
 input_mode = st.radio("Choose Input Mode:", ["Voice", "Text"])
@@ -288,32 +301,46 @@ if query:
                 f"Answer the following query in a detailed and comprehensive manner: {translated_query}\n"
                 "Provide a thorough explanation."
             )
-            model = genai.GenerativeModel("gemini-1.5-flash")
-            response = model.generate_content(prompt)
+            with st.spinner("Generating response..."):
+                model = genai.GenerativeModel("gemini-1.5-flash")
+                response = model.generate_content(prompt)
             response_text = response.text if response else "Sorry, I couldn't generate a response."
             # Optionally clear the uploaded image so subsequent queries are not influenced
             st.session_state.uploaded_image = None
     else:
         # Process as a general agricultural query.
-        response_text = get_gemini_response(translated_query, st.session_state.chat_history)
+        response_text = get_gemini_response(translated_query)
     
     # Translate response back to user's selected language
     final_response, _ = translate_text(response_text, selected_lang)
     
-    # Save conversation to chat history
+    # Save conversation to chat history (both session state and LangChain memory)
     st.session_state.chat_history.append((query, final_response))
+    st.session_state.conversation_memory.save_context({"input": query}, {"output": final_response})
+    
+    # ---------------------
+    # Chat Interface in Main Panel
+    # ---------------------
+    st.write("## Conversation")
+    # Display conversation using a chat-like interface; newer versions of Streamlit support st.chat_message
+    for user_query, bot_response in st.session_state.chat_history:
+        with st.chat_message("user"):
+            st.markdown(user_query)
+        with st.chat_message("assistant"):
+            st.markdown(bot_response)
     
     st.write("### Response:")
     st.write(final_response)
     
-    # Convert response to speech
-    audio_bytes = text_to_speech(final_response, selected_lang)
-    if audio_bytes:
-        st.audio(audio_bytes.getvalue(), format="audio/mp3")
-    else:
-        st.error("Could not generate speech response.")
+    # Convert response to speech only if audio is enabled
+    if enable_audio:
+        audio_bytes = text_to_speech(final_response, selected_lang)
+        if audio_bytes:
+            st.audio(audio_bytes.getvalue(), format="audio/mp3")
+        else:
+            st.error("Could not generate speech response.")
 
-# Display chat history in the sidebar
+# Also display chat history in the sidebar for reference
 st.sidebar.title("Chat History")
 for user_query, bot_response in reversed(st.session_state.chat_history):
     st.sidebar.write(f"**You:** {user_query}")
