@@ -11,8 +11,6 @@ import requests
 import json
 import re
 from PIL import Image
-
-# Import LangChain memory for conversation history preservation
 from langchain.memory import ConversationBufferMemory
 
 # Load .env variables
@@ -23,7 +21,6 @@ GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 if not GOOGLE_API_KEY:
     raise ValueError("GOOGLE_API_KEY not found. Make sure it's set in your .env file.")
 
-# Configure Gemini API Key
 genai.configure(api_key=GOOGLE_API_KEY)
 
 # List of Indian languages and dialects
@@ -87,7 +84,7 @@ GOOGLE_SPEECH_LANG_MAP = {
     "ur": "ur-IN"
 }
 
-# Initialize chat history in session_state (for sidebar display)
+# Initialize chat history
 if "chat_history" not in st.session_state:
     st.session_state.chat_history = []
 
@@ -97,13 +94,9 @@ if "conversation_memory" not in st.session_state:
         memory_key="history", return_messages=False, k=7
     )
 
-# Initialize uploaded image in session_state (do not auto-analyze)
+# Initialize uploaded image in sesion state
 if "uploaded_image" not in st.session_state:
     st.session_state.uploaded_image = None
-
-# ---------------------
-# Utility Functions
-# ---------------------
 
 def translate_text(text, target_lang):
     try:
@@ -141,7 +134,7 @@ def get_speech_input(selected_lang_code="en"):
         except sr.RequestError:
             return "Could not request results. Please check your internet connection."
 
-# Expanded list of agriculture-related keywords
+# list of agriculture-related keywords
 FARMING_KEYWORDS = [
     "crop", "crops", "vegetables", "fruits", "seed", "seeds", "sow", "farm", "farming", "cultivation", "farmer", "agriculture", "soil", "irrigation", "tree", "trees", "banyan",
     "harvest", "seeds", "seed", "fertilizer", "pesticides", "pesticide", "weather", "yield", "drought", "insecticide", "insecticides",
@@ -192,7 +185,6 @@ def get_gemini_response(query):
     return response.text if response else "Sorry, I couldn't generate a response."
 
 def clean_json_response(text):
-    # Remove markdown code fences (e.g., ```json ... ```)
     cleaned = re.sub(r'^```json\s*', '', text)
     cleaned = re.sub(r'\s*```$', '', cleaned)
     return cleaned.strip()
@@ -203,10 +195,7 @@ def analyze_plant_with_gemini(uploaded_image):
     'species', 'disease', and 'treatment'.
     """
     try:
-        # Load the image data into PIL.Image format
         image = Image.open(uploaded_image)
-
-        # Gemini Vision model instance (using a flash model here)
         model = genai.GenerativeModel("gemini-1.5-flash")
 
         # Construct a prompt that instructs the API to output only valid JSON.
@@ -232,10 +221,8 @@ def analyze_plant_with_gemini(uploaded_image):
     except Exception as e:
         st.error(f"Error analyzing plant image with Gemini: {e}")
         return None
-
-# ---------------------
+        
 # Streamlit UI for Chat
-# ---------------------
 
 st.title("🌿 Agri Bot (Multilingual) 🌿")
 st.subheader("Ask your farming-related questions via voice or text.")
@@ -259,18 +246,14 @@ if input_mode == "Voice":
 elif input_mode == "Text":
     query = st.text_input("Type your question:")
 
-# ---------------------
 # File Uploader for Plant/Crop Image
-# ---------------------
 st.header("Upload Plant/Crop Image (Optional)")
 uploaded_file = st.file_uploader("Upload an image (jpg, jpeg, png)", type=["jpg", "jpeg", "png"], key="plant_image_uploader")
 if uploaded_file is not None:
     st.session_state.uploaded_image = uploaded_file
     st.success("Image uploaded successfully")
 
-# ---------------------
 # Process User Query
-# ---------------------
 if query:
     # Display the original query in the language the user asked
     st.write(f"**You asked:** {query}")
@@ -305,7 +288,7 @@ if query:
                 model = genai.GenerativeModel("gemini-1.5-flash")
                 response = model.generate_content(prompt)
             response_text = response.text if response else "Sorry, I couldn't generate a response."
-            # Optionally clear the uploaded image so subsequent queries are not influenced
+            # Clear the uploaded image so subsequent queries are not influenced
             st.session_state.uploaded_image = None
     else:
         # Process as a general agricultural query.
@@ -318,11 +301,8 @@ if query:
     st.session_state.chat_history.append((query, final_response))
     st.session_state.conversation_memory.save_context({"input": query}, {"output": final_response})
     
-    # ---------------------
     # Chat Interface in Main Panel
-    # ---------------------
     st.write("## Conversation")
-    # Display conversation using a chat-like interface; newer versions of Streamlit support st.chat_message
     for user_query, bot_response in st.session_state.chat_history:
         with st.chat_message("user"):
             st.markdown(user_query)
@@ -340,7 +320,7 @@ if query:
         else:
             st.error("Could not generate speech response.")
 
-# Also display chat history in the sidebar for reference
+# display chat history in the sidebar for reference
 st.sidebar.title("Chat History")
 for user_query, bot_response in reversed(st.session_state.chat_history):
     st.sidebar.write(f"**You:** {user_query}")
